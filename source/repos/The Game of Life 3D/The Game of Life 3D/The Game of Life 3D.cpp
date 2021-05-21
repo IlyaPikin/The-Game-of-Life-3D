@@ -1,346 +1,314 @@
-﻿#include <iostream>
-#include <vector>
-#include <numeric>
-#include <algorithm>
-#include <random>
+﻿#include <vector>
 #include <Windows.h>
-#include <conio.h>
-#include <time.h>
+#include <list>
+#include <iostream>
+#include <algorithm>
+#include <numeric>
+#include <random>
+#include <bitset>
 using namespace std;
-COORD position;
-HANDLE hConsole = GetStdHandle(STD_OUTPUT_HANDLE);
+// 0 -------\ Y (m)
+//   -------/
+// ||
+// ||
+// ||
+// ||
+// \/ X (n)
+enum TypeCell
+{
+    env,
+    alive
+};
+struct Cell
+{
+    TypeCell type;
+    friend ostream& operator<<(ostream& out, const Cell& cell)
+    {
+        if (cell.type == env) out << '.';
+        else if (cell.type == alive) out << '#';
+        return out;
+    }
+};
+
+struct Field1D
+{
+    int n = 0;
+    vector<Cell> cells;
+    Field1D(int n) :n(n), cells(vector<Cell>(n)) {}
+    int getNum(int pos, TypeCell type = TypeCell::alive, int radius = 1) const
+    {
+        int count = 0;
+        for (int i = pos - radius; i <= pos + radius; i++)
+            if (cells[(i + n) % n].type == type)
+                count++;
+        return count;
+    }
+    Cell& operator[](int i) { return cells[i]; }
+    Cell operator[](int i) const { return cells[i]; } // const вариант для cout
+    friend ostream& operator<<(ostream& out, const Field1D& field)
+    {
+        for (int i = 0; i < field.n; i++)
+            out << field[i];
+        return out;
+    }
+};
+struct Field2D
+{
+    int n = 0;
+    int m = 0;
+    vector<Field1D> cells;
+    Field2D() {}
+    Field2D(int n, int m) : n(n), m(m), cells(vector<Field1D>(n, Field1D(m))) {}
+    int getNum(int posX, int posY, TypeCell type = alive, int radius = 1) const
+    {
+        int count = 0;
+        for (int i = posX - radius; i <= posX + radius; i++)
+            count += cells[(i + n) % n].getNum(posY, type, radius);
+        return count;
+    }
+    Field1D& operator[](int i) { return cells[i]; }
+    Field1D operator[](int i) const { return cells[i]; }
+    friend ostream& operator<<(ostream& out, const Field2D& field)
+    {
+        for (int i = 0; i < field.n; i++)
+            out << field[i] << "\n";
+        return out;
+    }
+};
+struct Field3D
+{
+    int n = 0;
+    int m = 0;
+    int k = 0;
+    vector<Field2D> cells;
+    Field3D() {}
+    Field3D(int n, int m, int k) : n(n), m(m), k(k), cells(vector<Field2D>(k, Field2D(n, m))) {}
+
+    int getNum(int posZ, int posX, int posY, TypeCell type = alive, int radius = 1) const
+    {
+        int count = 0;
+        for (int i = posZ - radius; i <= posZ + radius; i++)
+        {
+            count += cells[(i + k) % k].getNum(posX, posY, type, radius);
+        }
+        return count;
+    }
+    Field2D& operator[](int i) { return cells[i]; }
+    Field2D operator[](int i) const { return cells[i]; }
+    friend ostream& operator<<(ostream& out, const Field3D& field)
+    {
+        for (int i = 0; i < field.k; i++)
+            out << i << ":\n" << field[i] << "\n";
+        return out;
+    }
+};
 
 struct iGame
 {
-    int n=0, m=0, k=0;
-    int seed = time(NULL); // случайная величина для генератора
-    double probability=0; // вероятность того, что клетка живая
+    int n = 0;
+    int m = 0;
+    int k = 0;
 
+    int seed = 0; // случайная величина для генератора
+    double probability = 0.0;  // вероятность того, что клетка живая
+    int dimension = 1; // размерность
+
+    int radius = 1; // радиус проверки, граница включена
+    int loneliness = 2; // с этого числа и меньше клетки умирают от одиночества
+    int birth_start = 3; // с этого числа и до birth_end появляется живая клетка
+    int birth_end = 3;
+    int overpopulation = 5; // с этого числа и дальше клетки погибают от перенаселения
     virtual void runGame(int numIt) = 0;
 };
-
-struct Game2d :iGame
+struct Game2D : public iGame
 {
-    char** field;
-    char** fieldCopy;
-    Game2d() {};
-
-    void setField() {
-        field = new char* [n + 2];
-        fieldCopy = new char* [n + 2]; //поле копия
-        for (int i = 0; i < n + 2; i++) {
-            field[i] = new char[m + 2];
-            for (int j = 0; j < m + 2; j++) {
-                if (i == 0 || i == n + 1 || j == 0 || j == m + 1) {
-                    field[i][j] = 'X';
-                }
-                else {
-                    if (rand() % 100 <= probability*100) {
-                        field[i][j] = 'O';
-                    }
-                    else {
-                        field[i][j] = '.';
-                    }
-                }
-            }
-
-            fieldCopy[i] = new char[m + 2]; //копия
-        }
+    Field2D field;
+    Field2D fieldNext;
+    Game2D() { dimension = 2; }
+    Game2D(int n, int m) {
+        this->n = n;
+        this->m = m;
+        dimension = 2;
+        field = fieldNext = Field2D(n, m);
     }
-    void draw()
+    void setGame(double p, int s = 0)
     {
-        for (int i = 0; i < n + 2; i++) {
-            for (int j = 0; j < m + 2; j++) {
-                position.X = i;
-                position.Y = j;
-                SetConsoleCursorPosition(hConsole, position);
-                if (field[i][j] == 'X') {
-                    SetConsoleTextAttribute(hConsole, (WORD)((1 << 4) | 11));
-                    putchar(field[i][j]);
+        probability = p;
+        seed = s;
+        field = Field2D(n, m);
+        vector<int> tmp(n * m);
+        iota(tmp.begin(), tmp.end(), 0);
+        shuffle(tmp.begin(), tmp.end(), std::mt19937(seed));
+        for (int i = 0; i < (int)(p * n * m + 0.5); i++)
+        {
+            int x = tmp[i] / m;
+            int y = tmp[i] % m;
 
-                }
-                else if (field[i][j] == 'O') {
-                    SetConsoleTextAttribute(hConsole, (WORD)((10 << 4) | 0));
-                    putchar(field[i][j]);
-
-                }
-                else if (field[i][j] == '.') {
-                    SetConsoleTextAttribute(hConsole, (WORD)((1 << 4) | 6));
-                    putchar(field[i][j]);
-
-                }
-            }
-
+            field[x][y].type = TypeCell::alive;
         }
-    }
-    int getCount(int x1, int y1) {  
-        int count = 0;
-            for (int i = -1; i <= 1; i++) {
-                for (int j = -1; j <= 1; j++) {
-                    if (fieldCopy[x1 + i][y1 + j] == 'O')
-                        count++;
-                }
-            }
-        return count;
     }
     void runGame(int numIt) override
     {
-        srand(seed);
-        setField();
-        system("cls");
-        draw();
-        Sleep(1000);
-        // игра, проход numIt итераций 
-        for (int count = 0; count < numIt; count++) {
-            // копирование поля
-            for (int i = 0; i < n+2; i++) {
-                for (int j = 0; j < m+2; j++) {
-                    fieldCopy[i][j] = field[i][j];
+        for (int it = 0; it < numIt; it++)
+        {
+            for (int i = 0; i < n; i++)
+            {
+                for (int j = 0; j < m; j++)
+                {
+                    int count = field.getNum(i, j);
+                    fieldNext[i][j].type = field[i][j].type;
+                    if (count <= loneliness || count >= overpopulation) fieldNext[i][j].type = TypeCell::env;
+                    else if (count >= birth_start && count <= birth_end) fieldNext[i][j].type = TypeCell::alive;
                 }
             }
-            // анализ копии поля и заполнение основного поля
-            for (int i = 1; i < n+1; i++) {
-                for (int j = 1; j < m+1; j++) {
-                    if (fieldCopy[i][j] == 'O' && (getCount(i, j) == 3 || getCount(i, j) == 4)) {
-                        field[i][j] = 'O';
-                    }
-                    else if (fieldCopy[i][j] == '.' && getCount(i, j) == 3) {
-                        field[i][j] = 'O';
-                    }
-                    else {
-                        field[i][j] = '.';
-                    }
-                }
-            }
-            draw();
-            Sleep(100);
+            field = fieldNext;
         }
-        //draw();
     }
+    void startGame()
+    {
 
-    ~Game2d(){
-        for (int i = 0; i < n + 2; i++) {
-            delete[] field[i];
-            delete[] fieldCopy[i];
-        }
-        delete[] field;
-        delete[] fieldCopy;
     }
 };
-
-struct Game3d :iGame
+struct Game3D : public iGame
 {
-    char*** field;
-    char*** fieldCopy;
-    Game3d() {};
+    Field3D field;
+    Field3D fieldNext;
+    Game3D() { dimension = 3; }
+    Game3D(int n, int m, int k) {
+        this->n = n;
+        this->m = m;
+        this->k = k;
+        dimension = 3;
+        field = fieldNext = Field3D(n, m, k);
+    }
+    void setGame(double p, int s = 0) {
+        probability = p;
+        seed = s;
+        field = Field3D(n, m, k);
+        vector<int> tmp(n * m * k);
+        iota(tmp.begin(), tmp.end(), 0);
+        shuffle(tmp.begin(), tmp.end(), std::mt19937(seed));
 
-    void setField() {
-        field = new char** [n + 2];
-        fieldCopy = new char** [n + 2]; //поле копия
-        for (int i = 0; i < n + 2; i++) {
-            field[i] = new char*[m + 2];
-            fieldCopy[i] = new char* [m + 2]; //копия
-            for (int j = 0; j < m + 2; j++) {
-                field[i][j] = new char [k + 2];
-                fieldCopy[i][j] = new char [k + 2]; //копия
-                for (int l=0; l < k+2; l++) {
-                    if (i == 0 || i == n + 1 || j == 0 || j == m + 1 || l==0 || l==k+1) {
-                        field[i][j][l] = 'X';
-                    }
-                    else {
-                        if (rand() % 100 <= probability * 100) {
-                            field[i][j][l] = 'O';
-                        }
-                        else {
-                            field[i][j][l] = '.';
-                        }
-                    }
-                }
-            }
+        for (int i = 0; i < (int)(p * n * m * k + 0.5); i++)
+        { 
+            int z = tmp[i] / (m*n);
+            tmp[i] %= m*n;
+            int x = tmp[i] / m;
+            int y = tmp[i] % m;
+            field[z][x][y].type = TypeCell::alive;
         }
     }
-    void draw()
-    {
-        for (int z = 1; z < k + 1; z++) {
-            for (int i = 0; i < n + 2; i++) {
-                for (int j = 0; j < m + 2; j++) {
-                    position.X = j; 
-                    position.Y = i + (n + 2) * (z - 1); // (n+2)*(z-1) - смещение по оси для отрисовки каждого отдельного слоя
-
-                    SetConsoleCursorPosition(hConsole, position);
-                    if (field[i][j][z] == 'X') {
-                        SetConsoleTextAttribute(hConsole, (WORD)((1 << 4) | 11));
-                        putchar(field[i][j][z]);
-
-                    }
-                    else if (field[i][j][z] == 'O') {
-                        SetConsoleTextAttribute(hConsole, (WORD)((10 << 4) | 0));
-                        putchar(field[i][j][z]);
-
-                    }
-                    else if (field[i][j][z] == '.') {
-                        SetConsoleTextAttribute(hConsole, (WORD)((1 << 4) | 6));
-                        putchar(field[i][j][z]);
-
-                    }
-                }
-
-            }
-        }
-    }
-    int getCount(int x1, int y1, int z1) {
-        int count = 0;
-        for (int i = -1; i <= 1; i++) {
-            for (int j = -1; j <= 1; j++) {
-                for (int l = -1; l <= 1; l++) {
-                    if (fieldCopy[x1 + i][y1 + j][z1 + l] == 'O')
-                        count++;
-                }
-            }
-        }
-        return count;
-    }
-    void editing() {
-        int x = 1, y = 1, z = 1;
-        while (1) {
-            char c = _getch();
-            if (c == 'a') {
-                y = 1 + ((y - 1) - 1 + m) % m;
-            }
-            else if (c == 'd') {
-                y = 1 + ((y - 1) + 1 + m) % m;
-            }
-            else if (c == 'w') {
-                x = 1 + ((x - 1) - 1 + n) % n;
-            }
-            else if (c == 's') {
-                x = 1 + ((x - 1) + 1 + n) % n;
-            }
-            else if (c=='e') { // e - вперёд по оси z
-                z = 1+((z-1) + 1 + k) % k;
-            }
-            else if (c=='q') { // q - назад по оси z
-                z = 1 + ((z-1) - 1 + k) % k;
-            } 
-            else if (c == ' ' && (x >= 1) && (x <= n) && (y >= 1) && (y <= m) && z>=1 && z<=k) {
-                if (field[x][y][z] == 'O') {
-                    field[x][y][z] = '.';
-                }
-                else if (field[x][y][z] == '.') {
-                    field[x][y][z] = 'O';
-                }
-            }
-            else if (c == 13) // enter
+    void runGame(int numIt) override  {
+        for (int it = 0; it < numIt; it++)
+        {
+            for (int i = 0; i < n; i++)
             {
-                break;
+                for (int j = 0; j < m; j++)
+                {
+                    for (int h = 0; h < k; h++) {
+                        int count = field.getNum(h, i, j);
+                        fieldNext[h][i][j].type = field[h][i][j].type;
+                        if (count <= loneliness || count >= overpopulation) fieldNext[h][i][j].type = TypeCell::env;
+                        else if (count >= birth_start && count <= birth_end) fieldNext[h][i][j].type = TypeCell::alive;
+                    }
+                }
             }
-            draw();
+            field = fieldNext;
         }
     }
-    void runGame(int numIt) override
+    double getProportion(TypeCell type) {
+        
+    }
+    void print(ostream& out) const
     {
-        srand(seed);
-        setField();
-        system("cls");
-        draw();
-        editing();
-        Sleep(1000);
-        // игра, проход numIt итераций 
-       for (int count = 0; count < numIt; count++) {
-           // копирование поля
-           for (int i = 0; i < n + 2; i++) 
-               for (int j = 0; j < m + 2; j++) 
-                   for(int l = 0; l < k + 2; l++)
-                   fieldCopy[i][j][l] = field[i][j][l];
-   
-           // анализ копии поля и заполнение основного поля
-           for (int i = 1; i < n + 1; i++) {
-               for (int j = 1; j < m + 1; j++) {
-                   for (int l = 1; l < k + 1; l++) {
-                       if (fieldCopy[i][j][l] == 'O' && getCount(i, j, l) >= 6 && getCount(i, j, l) <= 11) {
-                           field[i][j][l] = 'O';
-                       }
-                       else if (fieldCopy[i][j][l] == '.' && getCount(i, j, l) >= 7 && getCount(i, j, l) <= 9) {
-                           field[i][j][l] = 'O';
-                       }
-                       else {
-                           field[i][j][l] = '.';
-                       }
-                   }
-               }
-           }
-           draw();
-           Sleep(100);
-       }
-        //draw();
-    }
-
-    ~Game3d() {
-        for (int i = 0; i < n + 2; i++) {
-            for (int j = 0; j < m + 2; j++) {
-                delete[] field[i][j];
-                delete[] fieldCopy[i][j];
-            }
-            delete[] field[i];
-            delete[] fieldCopy[i];
-        }
-        delete[] field;
-        delete[] fieldCopy;
+        out << field;
     }
 };
 
 int main()
 {
-    SetConsoleTitle(TEXT("The game of life"));
-    system("color 1f");
-    setlocale(LC_ALL, "Russian");
-    cout << "__________Игра Жизнь__________" << endl<<"Выберете режим игры (WASD, ENTER):";
-    cout << endl << "1. 2D режим" << endl << "2. 3D режим";
-    position.X = 0;
-    position.Y = 2;
-    SetConsoleCursorPosition(hConsole, position);
-    iGame* newGame = 0;
-    while (1) {
-        char c = _getch();
-        if (c == 'w') {
-            position.Y = 2+(position.Y-1)%2;
-            SetConsoleCursorPosition(hConsole, position);
-        }
-        else if (c == 's') {
-            position.Y = 2 + (position.Y +1) % 2;
-            SetConsoleCursorPosition(hConsole, position);
-        }
-        else if (c == 'a') {
-            position.X = (position.X-1+11)%11;
-            SetConsoleCursorPosition(hConsole, position);
-        }
-        else if (c == 'd') {
-            position.X = (position.X + 1) % 11;
-            SetConsoleCursorPosition(hConsole, position);
-        }
-        else if (c == 13) {
-            if (position.Y==2) {
-                newGame = new Game2d;
-                system("cls");
-                cout << "__________Игра Жизнь__________" << endl << "Введите размеры поля:" << endl;
-                cin >> newGame->n >> newGame->m;
-            }
-            else if (position.Y == 3) {
-                newGame = new Game3d;
-                system("cls");
-                cout << "__________Игра Жизнь__________" << endl << "Введите размеры поля:" << endl;
-                cin >> newGame->n >> newGame->m >> newGame->k;
-            }
-            //SetConsoleCursorPosition(hConsole, position);
-            break;
-        }
-    }
-    cout << endl << "Введите число итераций:" << endl;
-    int numIt;
-    cin >> numIt;
-    cout << endl << "Введите параметр вероятности генерации:" << endl;
-    cin >> newGame->probability;
-    newGame->runGame(numIt);
+    //int n = 3, m = 4, k = 5;
+    //Field3D field(n, m, k);
+    //field[0][1][2].type = TypeCell::alive;
+    //field[0][2][1].type = TypeCell::alive;
+    //field[1][1][1].type = TypeCell::alive;
+    //field[4][2][3].type = TypeCell::alive;
+    //cout << "Set type cell:\n" << field;
+    //cout << "Numbers of alive: " << field.getNum(0, 1, 1) << " " << field.getNum(3, 1, 1) << "\n\n";
+    //Sleep(100);
+
+    //Game2D game = Game2D(5, 5);
+    //game.field[2][1].type = TypeCell::alive;
+    //game.field[2][2].type = TypeCell::alive;
+    //game.field[2][3].type = TypeCell::alive;
+    //cout << "Set field for 2d game:\n" << game.field << "\n";
+    //game.runGame(1);
+    //cout << game.field << "\n";
+    //game.runGame(1);
+    //cout << game.field << "\n";
+    //
+    //game.setGame(0.28);
+    //cout << "test probability. Start: \n" << game.field << "\n";
+    //game.runGame(20);
+    //cout << "test probability. End 20 it: \n" << game.field << "\n";
+    //
+    //bitset<10> b;
+
+    //Game3D game = Game3D(3, 4, 5);
+    //game.field[1][1][1].type = TypeCell::alive;
+    //game.field[1][2][1].type = TypeCell::alive;
+    //game.field[1][1][2].type = TypeCell::alive;
+    //game.field[1][2][2].type = TypeCell::alive;
+    //game.field[2][1][1].type = TypeCell::alive;
+    //game.field[2][2][1].type = TypeCell::alive;
+    //game.field[2][1][2].type = TypeCell::alive;
+    //game.field[2][2][2].type = TypeCell::alive;
+    //cout << "Set field for 3d game:\n" << game.field << "\n";
+    //game.runGame(1);
+    //cout << game.field << "\n";
+    //game.runGame(1);
+    //cout << game.field << "\n";
+    //
+    //game.setGame(0.28);
+    //cout << "test probability. Start: \n" << game.field << "\n";
+    //game.runGame(20);
+    //cout << "test probability. End 20 it: \n" << game.field << "\n";
+
+
+
+
 
     return 0;
 }
+
+// 0) Cell, Field, type Enum, operator <<
+// 1) view в данном варианте не нужен, достаточно иметь Field
+// 2) operator[] and "operator[][]" and operator(int i, int j, int k)
+// 3) iota, random
+// 4) view должен быть связан с game, чтобы получать от него "обновления" и взаимодействовать с ним
+// 4) например, мы хотим реализовать меню для игры: паузу, донастройку, чтобы игра сообщала о некоторых событиях.
+
+struct iView
+{
+    char livingCell; // символ "живой" клетки
+    char dyingCell; // символ "неживой" клетки
+    // ... свобода творчества для реализации и взаимодействия view, можно реализовать 2d draw и использвать его в 3d
+};
+struct View2d : iView
+{
+    void draw(char** field, int n, int m)
+    {
+        system("cls");
+        for (int i = 0; i < n; i++)
+            fwrite(field[i], sizeof(char), m + 1, stdout);
+    }
+};
+struct View3d : iView
+{
+    char*** field;
+    void setField(char*** field) {};
+    void draw()
+    {
+
+    }
+};
