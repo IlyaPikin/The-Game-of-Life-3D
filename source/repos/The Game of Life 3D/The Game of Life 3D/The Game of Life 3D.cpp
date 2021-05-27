@@ -6,6 +6,7 @@
 #include <numeric>
 #include <random>
 #include <bitset>
+#include <ctime>
 using namespace std;
 // 0 -------\ Y (m)
 //   -------/
@@ -155,7 +156,7 @@ struct Game2D : public iGame
             {
                 for (int j = 0; j < m; j++)
                 {
-                    int count = field.getNum(i, j);
+                    int count = field.getNum(i, j, alive, radius);
                     fieldNext[i][j].type = field[i][j].type;
                     if (count <= loneliness || count >= overpopulation) fieldNext[i][j].type = TypeCell::env;
                     else if (count >= birth_start && count <= birth_end) fieldNext[i][j].type = TypeCell::alive;
@@ -171,6 +172,7 @@ struct Game2D : public iGame
 };
 struct Game3D : public iGame
 {
+    int count=0;
     Field3D field;
     Field3D fieldNext;
     Game3D() { dimension = 3; }
@@ -201,12 +203,13 @@ struct Game3D : public iGame
     void runGame(int numIt) override  {
         for (int it = 0; it < numIt; it++)
         {
-            for (int i = 0; i < n; i++)
-            {
-                for (int j = 0; j < m; j++)
+            for (int h = 0; h < k; h++) {
+                for (int i = 0; i < n; i++)
                 {
-                    for (int h = 0; h < k; h++) {
-                        int count = field.getNum(h, i, j);
+                    for (int j = 0; j < m; j++)
+                    {
+                    
+                        count = field.getNum(h, i, j, alive, radius);
                         fieldNext[h][i][j].type = field[h][i][j].type;
                         if (count <= loneliness || count >= overpopulation) fieldNext[h][i][j].type = TypeCell::env;
                         else if (count >= birth_start && count <= birth_end) fieldNext[h][i][j].type = TypeCell::alive;
@@ -216,8 +219,18 @@ struct Game3D : public iGame
             field = fieldNext;
         }
     }
-    double getProportion(TypeCell type) {
-        
+    double getProportion(TypeCell type = alive) {
+        double count = 0;
+        for (int i = 0; i < n; i++)
+        {
+            for (int j = 0; j < m; j++)
+            {
+                for (int h = 0; h < k; h++) {
+                    if (field[h][i][j].type == type) count++;
+                }
+            }
+        }
+        return count / (double)(n*m*k);
     }
     void print(ostream& out) const
     {
@@ -227,55 +240,92 @@ struct Game3D : public iGame
 
 int main()
 {
-    //int n = 3, m = 4, k = 5;
-    //Field3D field(n, m, k);
-    //field[0][1][2].type = TypeCell::alive;
-    //field[0][2][1].type = TypeCell::alive;
-    //field[1][1][1].type = TypeCell::alive;
-    //field[4][2][3].type = TypeCell::alive;
-    //cout << "Set type cell:\n" << field;
-    //cout << "Numbers of alive: " << field.getNum(0, 1, 1) << " " << field.getNum(3, 1, 1) << "\n\n";
-    //Sleep(100);
+    setlocale(LC_ALL, "Russian");
+    
+    Game3D game = Game3D(4, 4, 4);
+    
+    cout << "Поле 1:" << endl;
+    game.field[1][0][1].type = TypeCell::alive;
+    game.field[1][2][3].type = TypeCell::alive;
+    game.field[2][0][1].type = TypeCell::alive;
+    game.field[2][2][2].type = TypeCell::alive;
+    game.field[3][2][2].type = TypeCell::alive;
+    game.field[3][3][1].type = TypeCell::alive;
+    game.print(cout);
+    //cout <<endl<< game.getProportion();
+    
+    cout << "Ответ:" << endl;
+    unsigned int start_time = clock();
+    for (int i1 = 1; i1 <= 2; i1++) {
+        game.radius = i1;
+        for (int i2 = 0; i2 <= 25; i2++) {
+            game.loneliness = i2;
+            for (int i3 = i2 + 1; i3 <= 26; i3++) {
+                game.birth_start = i3;
+                for (int i4 = i3; i4 <= 26; i4++) {
+                    game.birth_end = i4;
+                    for (int i5 = i4 + 1; i5 <= 27; i5++) {
+                        game.overpopulation = i5;
 
-    //Game2D game = Game2D(5, 5);
-    //game.field[2][1].type = TypeCell::alive;
-    //game.field[2][2].type = TypeCell::alive;
-    //game.field[2][3].type = TypeCell::alive;
-    //cout << "Set field for 2d game:\n" << game.field << "\n";
-    //game.runGame(1);
-    //cout << game.field << "\n";
-    //game.runGame(1);
-    //cout << game.field << "\n";
-    //
-    //game.setGame(0.28);
-    //cout << "test probability. Start: \n" << game.field << "\n";
-    //game.runGame(20);
-    //cout << "test probability. End 20 it: \n" << game.field << "\n";
-    //
-    //bitset<10> b;
+                        game.runGame(20);
+                        double prop = game.getProportion(alive);
+                        //cout << prop<<endl;
+                        if (prop >= 0.15 && prop <= 0.2) {
+                            cout << endl << i1 << " " << i2 << " " << i3 << " " << i4 << " " << i5;
+                        }
 
-    //Game3D game = Game3D(3, 4, 5);
-    //game.field[1][1][1].type = TypeCell::alive;
-    //game.field[1][2][1].type = TypeCell::alive;
-    //game.field[1][1][2].type = TypeCell::alive;
-    //game.field[1][2][2].type = TypeCell::alive;
-    //game.field[2][1][1].type = TypeCell::alive;
-    //game.field[2][2][1].type = TypeCell::alive;
-    //game.field[2][1][2].type = TypeCell::alive;
-    //game.field[2][2][2].type = TypeCell::alive;
-    //cout << "Set field for 3d game:\n" << game.field << "\n";
-    //game.runGame(1);
-    //cout << game.field << "\n";
-    //game.runGame(1);
-    //cout << game.field << "\n";
-    //
-    //game.setGame(0.28);
-    //cout << "test probability. Start: \n" << game.field << "\n";
-    //game.runGame(20);
-    //cout << "test probability. End 20 it: \n" << game.field << "\n";
+                        game.setGame(0);
+                        game.field[1][0][1].type = TypeCell::alive;
+                        game.field[1][2][3].type = TypeCell::alive;
+                        game.field[2][0][1].type = TypeCell::alive;
+                        game.field[2][2][2].type = TypeCell::alive;
+                        game.field[3][2][2].type = TypeCell::alive;
+                        game.field[3][3][1].type = TypeCell::alive;
+                    }
+                }
+            }
+        }
+    }
+    unsigned int end_time = clock();
+    unsigned int search_time = end_time - start_time;
+    cout<< endl<< endl << "Время выполнения: "<< search_time << " секунд" << endl;
 
+    cout << endl <<  "Поле 2:" << endl;
+    game.setGame(1);
+    game.field[2][0][2].type = TypeCell::env;
+    game.field[2][1][0].type = TypeCell::env;
+    game.field[3][2][1].type = TypeCell::env;
+    game.print(cout);
+    //cout << endl << game.getProportion();
 
+    cout << "Ответ:" << endl;
+    for (int i1 = 1; i1 <= 2; i1++) {
+        game.radius = i1;
+        for (int i2 = 0; i2 <= 25; i2++) {
+            game.loneliness = i2;
+            for (int i3 = i2 + 1; i3 <= 26; i3++) {
+                game.birth_start = i3;
+                for (int i4 = i3; i4 <= 26; i4++) {
+                    game.birth_end = i4;
+                    for (int i5 = i4 + 1; i5 <= 27; i5++) {
+                        game.overpopulation = i5;
 
+                        game.runGame(20);
+                        double prop = game.getProportion(alive);
+                        //cout << prop<<endl;
+                        if (prop >= 0.15 && prop <= 0.2) {
+                            cout << endl << i1 << " " << i2 << " " << i3 << " " << i4 << " " << i5;
+                        }
+
+                        game.setGame(1);
+                        game.field[2][0][2].type = TypeCell::env;
+                        game.field[2][1][0].type = TypeCell::env;
+                        game.field[3][2][1].type = TypeCell::env;
+                    }
+                }
+            }
+        }
+    }
 
 
     return 0;
