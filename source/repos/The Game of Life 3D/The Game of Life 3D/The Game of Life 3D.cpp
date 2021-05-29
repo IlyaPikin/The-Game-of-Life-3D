@@ -6,15 +6,31 @@
 #include <numeric>
 #include <random>
 #include <bitset>
-#include <ctime>
+#include <conio.h>
+#include <string>
+
 using namespace std;
-// 0 -------\ Y (m)
-//   -------/
-// ||
-// ||
-// ||
-// ||
-// \/ X (n)
+
+enum GameEvent {
+    FieldEmpty,
+    FieldFull,
+};
+
+struct Observer {
+    virtual void newEvent(GameEvent event) = 0;
+};
+struct Subject {
+    vector<Observer*> observers;
+    void subscribe(Observer& tmp) {
+        observers.push_back(&tmp);
+    }
+    void update(GameEvent event) {
+        for (auto observer : observers) {
+            observer->newEvent(event);
+        }
+    }
+};
+
 enum TypeCell
 {
     env,
@@ -104,7 +120,7 @@ struct Field3D
     }
 };
 
-struct iGame
+struct iGame : public Subject
 {
     int n = 0;
     int m = 0;
@@ -119,7 +135,26 @@ struct iGame
     int birth_start = 3; // с этого числа и до birth_end появляется живая клетка
     int birth_end = 3;
     int overpopulation = 5; // с этого числа и дальше клетки погибают от перенаселения
+
+    virtual void setGame(double p, int s = 0) = 0;
     virtual void runGame(int numIt) = 0;
+    virtual int getCount(TypeCell type = alive) = 0;
+    virtual double getProb(TypeCell type = alive) = 0;
+    virtual void print(ostream& out) const = 0;
+
+
+    void run(int numIt) {
+        runGame(1);
+        int count = getCount();
+        if (count == 0) {
+            update(FieldEmpty);
+        }
+    }
+
+    friend ostream& operator<< (ostream& out, const iGame& game) {
+        game.print(out);
+        return out;
+    }
 };
 struct Game2D : public iGame
 {
@@ -165,14 +200,27 @@ struct Game2D : public iGame
             field = fieldNext;
         }
     }
-    void startGame()
-    {
-
+    int getCount(TypeCell type = alive) {
+        int count = 0;
+        for (int i = 0; i < n; i++) {
+            for (int j = 0; j < m; j++) {
+                if (field[i][j].type == type) count++;
+            }
+        }
+        return count;
+    }
+    double getProb(TypeCell type = alive) {
+        int count = getCount();
+        double prob;
+        prob = (double) count / (n * m);
+        return prob;
+    }
+    void print(ostream& out) const {
+        out << field;
     }
 };
 struct Game3D : public iGame
 {
-    int count=0;
     Field3D field;
     Field3D fieldNext;
     Game3D() { dimension = 3; }
@@ -208,7 +256,7 @@ struct Game3D : public iGame
                 {
                     for (int j = 0; j < m; j++)
                     {
-                    
+                        int count;
                         count = field.getNum(h, i, j, alive, radius);
                         fieldNext[h][i][j].type = field[h][i][j].type;
                         if (count <= loneliness || count >= overpopulation) fieldNext[h][i][j].type = TypeCell::env;
@@ -219,18 +267,22 @@ struct Game3D : public iGame
             field = fieldNext;
         }
     }
-    double getProportion(TypeCell type = alive) {
-        double count = 0;
-        for (int i = 0; i < n; i++)
-        {
-            for (int j = 0; j < m; j++)
-            {
-                for (int h = 0; h < k; h++) {
+    int getCount(TypeCell type = alive) override {
+        int count = 0;
+        for (int h = 0; h < k; h++) {
+            for (int i = 0; i < n; i++) {
+                for (int j = 0; j < m; j++) {
                     if (field[h][i][j].type == type) count++;
                 }
             }
         }
-        return count / (double)(n*m*k);
+        return count;
+    }
+    double getProb(TypeCell type = alive) {
+        int count = getCount();
+        double prob;
+        prob = (double) count / (n * m * k);
+        return prob;
     }
     void print(ostream& out) const
     {
@@ -238,127 +290,189 @@ struct Game3D : public iGame
     }
 };
 
+struct View : public Observer {
+    iGame* game;
+    int dimension = 0;
+    int button = 0;
+    int n, m, k;
+    double prob;
+    string message;
+
+    enum Status {
+        gameSetup,
+        gameReady,
+        gameRun,
+        gamePause,
+        gameOver
+    };
+    Status status = gameSetup;
+
+    void setCur(int x, int y = 0) {
+        COORD pos = { y, x };
+        HANDLE output = GetStdHandle(STD_OUTPUT_HANDLE);
+        SetConsoleCursorPosition(output, pos);
+    }
+
+    View() {}
+    void start() {
+        while (1) {
+            if (status == gameSetup) {
+                    system("cls");
+                    cout << "Выберете режим игры:"<<endl;
+                    cout << "_2D_"<<endl;
+                    cout << "_3D_"<<endl;
+                    int pos = 0;
+                    setCur(pos + 1);
+                    while (1) {
+                        if (_kbhit()) {
+                            button = _getch();
+                            if (button == 'w') {
+                                pos = (pos - 1 + 2) % 2;
+                                setCur(pos + 1);
+                            }
+                            else if (button == 's') {
+                                pos = (pos + 1) % 2;
+                                setCur(pos + 1);
+                            }
+                            else if (button == 13 || button == 32) {
+
+                                setCur(3);
+                                dimension = (int)(pos + 2);
+
+                                if (dimension == 2) {
+
+                                    cout << "Введите размеры поля:"<< endl;
+                                    cin >> n >> m;
+                                    game = new Game2D(n, m);
+                                    cout << "Введите вероятность генерации (от 0 до 1):" << endl;
+                                    cin >> prob;
+                                    game->setGame(prob);
+                                    game->subscribe(*this);
+                                }
+                                else if (dimension == 3) {
+
+                                    cout << "Введите размеры поля:" << endl;
+                                    cin >> n >> m >> k;
+                                    game = new Game3D(n, m, k);
+                                    cout << "Введите вероятность генерации (от 0 до 1):" << endl;
+                                    cin >> prob;
+                                    game->setGame(prob);
+                                    game->subscribe(*this);
+                                }
+                                break;
+                            }
+                        }
+                    }
+
+                    system("cls");
+                    status = gameReady;
+                
+            }
+            else if (status == gameReady) {
+                system("cls");
+                cout << *game << endl;
+                cout << "Управление:" << endl << endl;
+                cout << "ESC    |  выйти из игры" << endl;
+                cout << "r      |  начать заново" << endl;
+                cout << "ПРОБЕЛ |  начало игры/пауза" << endl << endl;
+                cout << "Для старта игры нажмите пробел." << endl;
+                _getch();
+                system("cls");
+                status = gameRun;
+            }
+            else if (status == gameRun) {
+                setCur(0);
+                game->run(1);
+                cout << *game;
+                if (_kbhit()) {
+                    button = _getch();
+                    if (button == 32) {
+                        status = gamePause;
+                    }
+                    if (button == 'r') {
+                        status = gameSetup;
+                    }
+                    if (button == 27) {
+                        system("cls");
+                        status = gameOver;
+                    }
+                }
+
+                Sleep(100);
+            }
+            else if (status == gamePause) {
+                if (_kbhit()) {
+                    button = _getch();
+                    if (button == 27) {
+                        status = gameOver;
+                        message = "";
+                    }
+                    if (button == 32) {
+                        status = gameRun;
+                    }
+                    if (button == 'r') {
+                        status = gameSetup;
+                    }
+
+                }
+            } 
+            else if (status == gameOver) {
+                system("cls");
+                cout << message << endl;
+                cout << "Игра окончена."<< endl<<endl;
+                cout << "Запустить игру снова?"<<endl;
+                cout << "__Да__"<<endl;
+                cout << "__Нет_"<<endl;
+                int pos = 0;
+                setCur(pos + 4);
+                while (1) {
+                    if (_kbhit()) {
+                        button = _getch();
+                        if (button == 'w') {
+                            pos = (pos - 1 + 2) % 2;
+                            setCur(pos + 4);
+                        }
+                        if (button == 's') {
+                            pos = (pos + 1) % 2;
+                            setCur(pos + 4);
+                        }
+                        if (button == 13 || button == 32) {
+                            if (pos == 0) {
+                                status = gameSetup;
+                                break;
+                            }
+                            else if (pos == 1)
+                                break;
+                        }
+                    }
+                }
+                if (status != gameSetup) {
+                    break;
+                }
+            }
+        }
+    }
+    void newEvent(GameEvent event) {
+        if (event == FieldEmpty) {
+            status = gameOver;
+            message = "Нет ни одной живой клетки.";
+        }
+        if (event == FieldFull) {
+            status = gameOver;
+            message = "Все клетки живые.";
+        }
+    }
+    ~View() {
+        delete game;
+    }
+
+};
+
 int main()
 {
     setlocale(LC_ALL, "Russian");
-    
-    Game3D game = Game3D(4, 4, 4);
-    
-    cout << "Поле 1:" << endl;
-    game.field[1][0][1].type = TypeCell::alive;
-    game.field[1][2][3].type = TypeCell::alive;
-    game.field[2][0][1].type = TypeCell::alive;
-    game.field[2][2][2].type = TypeCell::alive;
-    game.field[3][2][2].type = TypeCell::alive;
-    game.field[3][3][1].type = TypeCell::alive;
-    game.print(cout);
-    //cout <<endl<< game.getProportion();
-    
-    cout << "Ответ:" << endl;
-    unsigned int start_time = clock();
-    for (int i1 = 1; i1 <= 2; i1++) {
-        game.radius = i1;
-        for (int i2 = 0; i2 <= 25; i2++) {
-            game.loneliness = i2;
-            for (int i3 = i2 + 1; i3 <= 26; i3++) {
-                game.birth_start = i3;
-                for (int i4 = i3; i4 <= 26; i4++) {
-                    game.birth_end = i4;
-                    for (int i5 = i4 + 1; i5 <= 27; i5++) {
-                        game.overpopulation = i5;
-
-                        game.runGame(20);
-                        double prop = game.getProportion(alive);
-                        //cout << prop<<endl;
-                        if (prop >= 0.15 && prop <= 0.2) {
-                            cout << endl << i1 << " " << i2 << " " << i3 << " " << i4 << " " << i5;
-                        }
-
-                        game.setGame(0);
-                        game.field[1][0][1].type = TypeCell::alive;
-                        game.field[1][2][3].type = TypeCell::alive;
-                        game.field[2][0][1].type = TypeCell::alive;
-                        game.field[2][2][2].type = TypeCell::alive;
-                        game.field[3][2][2].type = TypeCell::alive;
-                        game.field[3][3][1].type = TypeCell::alive;
-                    }
-                }
-            }
-        }
-    }
-    unsigned int end_time = clock();
-    unsigned int search_time = end_time - start_time;
-    cout<< endl<< endl << "Время выполнения: "<< search_time << " секунд" << endl;
-
-    cout << endl <<  "Поле 2:" << endl;
-    game.setGame(1);
-    game.field[2][0][2].type = TypeCell::env;
-    game.field[2][1][0].type = TypeCell::env;
-    game.field[3][2][1].type = TypeCell::env;
-    game.print(cout);
-    //cout << endl << game.getProportion();
-
-    cout << "Ответ:" << endl;
-    for (int i1 = 1; i1 <= 2; i1++) {
-        game.radius = i1;
-        for (int i2 = 0; i2 <= 25; i2++) {
-            game.loneliness = i2;
-            for (int i3 = i2 + 1; i3 <= 26; i3++) {
-                game.birth_start = i3;
-                for (int i4 = i3; i4 <= 26; i4++) {
-                    game.birth_end = i4;
-                    for (int i5 = i4 + 1; i5 <= 27; i5++) {
-                        game.overpopulation = i5;
-
-                        game.runGame(20);
-                        double prop = game.getProportion(alive);
-                        //cout << prop<<endl;
-                        if (prop >= 0.15 && prop <= 0.2) {
-                            cout << endl << i1 << " " << i2 << " " << i3 << " " << i4 << " " << i5;
-                        }
-
-                        game.setGame(1);
-                        game.field[2][0][2].type = TypeCell::env;
-                        game.field[2][1][0].type = TypeCell::env;
-                        game.field[3][2][1].type = TypeCell::env;
-                    }
-                }
-            }
-        }
-    }
-
+    View view;
+    view.start();
 
     return 0;
 }
-
-// 0) Cell, Field, type Enum, operator <<
-// 1) view в данном варианте не нужен, достаточно иметь Field
-// 2) operator[] and "operator[][]" and operator(int i, int j, int k)
-// 3) iota, random
-// 4) view должен быть связан с game, чтобы получать от него "обновления" и взаимодействовать с ним
-// 4) например, мы хотим реализовать меню для игры: паузу, донастройку, чтобы игра сообщала о некоторых событиях.
-
-struct iView
-{
-    char livingCell; // символ "живой" клетки
-    char dyingCell; // символ "неживой" клетки
-    // ... свобода творчества для реализации и взаимодействия view, можно реализовать 2d draw и использвать его в 3d
-};
-struct View2d : iView
-{
-    void draw(char** field, int n, int m)
-    {
-        system("cls");
-        for (int i = 0; i < n; i++)
-            fwrite(field[i], sizeof(char), m + 1, stdout);
-    }
-};
-struct View3d : iView
-{
-    char*** field;
-    void setField(char*** field) {};
-    void draw()
-    {
-
-    }
-};
